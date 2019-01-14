@@ -106,6 +106,7 @@ class CARAX_Remote_Backup{
                 switch( strtolower( $Remote["Type"] ) ){
                     case "ftp": $this->TransferToFTP( $File, $Remote ); break;
                     case "dropbox": $this->TransferToDropbox( $File, $Remote ); break;
+                    case "dir": $this->TransferToDir( $File, $Remote ); break;
                 }//end of switch
             }//end of foreach
         }//end of if
@@ -128,7 +129,7 @@ class CARAX_Remote_Backup{
 * @access public
 * @author Pascal Brödner
 */
-    public function TransferToDropbox( $File, $Options ){
+    private function TransferToDropbox( $File, $Options ){
         // Create Innstance
         $Dropbox = new CARAX_Dropbox( $Options["Token"] );
         
@@ -158,7 +159,7 @@ class CARAX_Remote_Backup{
 * @access public
 * @author Pascal Brödner
 */
-    public function TransferToFTP( $File, $Options ){
+    private function TransferToFTP( $File, $Options ){
         // Connect
         $Con = ftp_connect( $Options["Host"], $Options["Port"] ); // Connect to FTP
         if( !$Con ) throw new Exception("Could not connect to FTP ".$Options["Host"].":".$Options["Port"] );
@@ -185,6 +186,56 @@ class CARAX_Remote_Backup{
         
         // return
         return $Result;
+    }//end of method
+    
+    
+/**
+* This method transfer a file to directory.
+*
+* @param string $File
+* @param array $Options
+* @return boolean $Result
+* @access public
+* @author Pascal Brödner
+*/
+    private function TransferToDir( $File, $Options ){
+        // Change to remote directory
+        $Path = realpath( $Options["Path"] ) . DIRECTORY_SEPARATOR;
+        if( !is_dir( $Path ) AND !is_writable( $Path ) ) throw new Exception( "Directory not found or not writable" );
+        
+        // Remove older files
+        if( $this->DeleteFilesAfterXDays > 0 ){
+            $FileList = glob( $Path."*" );
+            if( count( $FileList ) > 0 ){
+                foreach( $FileList AS $RFile ){
+                    $ModTime = filemtime( $RFile );
+                    if( $ModTime <= strtotime( "-".intval( $this->DeleteFilesAfterXDays )." days" ) ) unlink( $RFile );
+                }//end of foreach
+            }//end of if
+        }//end of if
+        
+        // Copy new file
+        $Result = copy( $File, $Path . basename( $File ) );
+        
+        // return
+        return $Result;
+    }//end of method
+    
+    
+/**
+* This method adding locale directory as target.
+*
+* @param string $Path
+* @return object $this
+* @access public
+* @author Pascal Brödner
+*/
+    public function ToDir( $Path ){
+        $this->RemoteTargets[] = array(
+            "Type"=> "Dir",
+            "Path"=> $Path
+        );
+        return $this;
     }//end of method
     
     
@@ -522,40 +573,32 @@ class CARAX_Dropbox{
 * @author Pascal Brödner
 */
     public function REST_Request( $URL, $Data = array(), $Headers = array(), $AuthRequired = false ){
-        try{
-            if( !is_array( $Headers ) ) $Headers = array();
-            $Content = ( is_array( $Data ) ) ? http_build_query( $Data, '', '&' ) : $Data;
+        if( !is_array( $Headers ) ) $Headers = array();
+        $Content = ( is_array( $Data ) ) ? http_build_query( $Data, '', '&' ) : $Data;
 
-            $Headers[] = "Accept: application/json";
-            $Headers[] = "Accept-Language: en_US";
-            if( $Content ) $Headers[] ="Content-length: ".strlen( $Content );
-            
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $URL);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $Headers);
-            if( $Content ) curl_setopt($ch, CURLOPT_POSTFIELDS, $Content );
-            if( $AuthRequired ) curl_setopt($ch, CURLOPT_USERPWD, $this->AppKey.":".$this->AppPwd);
+        $Headers[] = "Accept: application/json";
+        $Headers[] = "Accept-Language: en_US";
+        if( $Content ) $Headers[] ="Content-length: ".strlen( $Content );
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $URL);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $Headers);
+        if( $Content ) curl_setopt($ch, CURLOPT_POSTFIELDS, $Content );
+        if( $AuthRequired ) curl_setopt($ch, CURLOPT_USERPWD, $this->AppKey.":".$this->AppPwd);
 
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_VERBOSE, false);
-            curl_setopt($ch, CURLOPT_POST, ( $Content ) ? true : false );
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, true);
-            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_VERBOSE, false);
+        curl_setopt($ch, CURLOPT_POST, ( $Content ) ? true : false );
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, true);
+        curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
 
-            $Response = curl_exec( $ch );
-            $this->CURL_Info = curl_getinfo( $ch );
-            curl_close( $ch );
+        $Response = curl_exec( $ch );
+        $CURL_Info = curl_getinfo( $ch );
+        curl_close( $ch );
 
-            // JSON Decode
-            if( $this->CURL_Info["content_type"] == "application/json" ){
-                $Response = json_decode( $Response, true );
-            }//end of if
-        }catch( Exception $e ){
-            $this->Log( $e->getMessage(), "error" );
-            return false;
-        };
-        return $Response;
+        // return
+        return ( $CURL_Info["content_type"] == "application/json" ) ? json_decode( $Response, true ) : $Response;
     }//end of method
 
 }//end of class

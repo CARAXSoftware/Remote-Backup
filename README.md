@@ -9,10 +9,11 @@ This small program offers you the possibility to back up entire directories, ind
 * Single files
 * SQL databases
 
-... as password secured and encrypted (AES-256 bit) 7z-archive with automatic upload and purge functionality to ...
+... as password secured and encrypted (AES-256 bit) 7z-archive with automatic upload and purge functionality to your ...
 
-* ... FTP Servers (File Transfer Protocol) or ...
-* ... your [Dropbox](https://www.dropbox.com) account.
+* local file system
+* FTP Server (File Transfer Protocol)
+* [Dropbox](https://www.dropbox.com) account.
 
 ### How to use
 
@@ -33,6 +34,7 @@ $Backup->File( "/myfiles/another-file.jpg" );
 // Set up the upload targets (Note: you can use multiple targets at the same time)
 $Backup->ToFTP( "<your-ftp-user>", "<your-ftp-password>", "<your-ftp-host>", 21, "PathOnMyFTPServer/" );
 $Backup->ToDropbox( "/MyDropboxFolder", "<your-dropbox-accesstoken>" );
+$Backup->ToDir( "/MyLocalBackupFolder" );
 
 // Start Backup
 $Backup->Process();
