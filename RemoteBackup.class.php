@@ -132,11 +132,19 @@ class CARAX_Remote_Backup{
         if( count( $this->RemoteTargets ) > 0 ){
             foreach( $this->RemoteTargets AS $Remote ){
                 $TransferOK = false;
-                $this->Output( "Transfer to ".$Remote["Type"]." ... ", 1, "", "", true );
                 switch( strtolower( $Remote["Type"] ) ){
-                    case "ftp": $TransferOK = $this->TransferToFTP( $File, $Remote ); break;
-                    case "dropbox": $TransferOK = $this->TransferToDropbox( $File, $Remote ); break;
-                    case "dir": $TransferOK = $this->TransferToDir( $File, $Remote ); break;
+                    case "ftp":
+                        $this->Output( "Transfer to FTP -> ".$Remote["User"]."@".$Remote["Host"]." ... ", 1, "", "", true );
+                        $TransferOK = $this->TransferToFTP( $File, $Remote );
+                    break;
+                    case "dropbox":
+                        $this->Output( "Transfer to Dropbox ... ", 1, "", "", true );
+                        $TransferOK = $this->TransferToDropbox( $File, $Remote );
+                    break;
+                    case "dir":
+                        $this->Output( "Transfer to directory -> ".$Remote["Path"]." ... ", 1, "", "", true );
+                        $TransferOK = $this->TransferToDir( $File, $Remote ); 
+                    break;
                 }//end of switch
                 if( $TransferOK ) $this->Output( "OK", 0, "green" ); ELSE $this->Output( "FAIL", 0, "red" );
             }//end of foreach
