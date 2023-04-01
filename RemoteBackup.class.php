@@ -2,7 +2,7 @@
 /*
  * MIT License
  * 
- * Copyright (c) 2018 Pascal Brödner <pb@carax-software.de>
+ * Copyright (c) 2023 Pascal Brödner <pb@carax-software.de>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -103,7 +103,7 @@ class CARAX_Remote_Backup{
         // Copy Directories
         $Max = count( $this->Dirs );
         if( $Max > 0 ){
-            $this->Output( "Coping ".$Max." directories".( $Max > 1 ? "s" : "" ).":", 1 );
+            $this->Output( "Coping ".$Max." directorie".( $Max > 1 ? "s" : "" ).":", 1 );
             $i = 1;
             foreach( $this->Dirs AS $R ){
                 // Get/Create Target Dir
@@ -426,6 +426,20 @@ class CARAX_Remote_Backup{
         echo str_repeat( "\t", $Level ).$Msg;
         if( !$NoBreak ) echo PHP_EOL;
         $this->LatestOutputLevel = $Level;
+        return $this;
+    }//end of method
+    
+    
+/**
+* This method prints an error message.
+*
+* @param string $Msg
+* @return CARAX_Remote_Backup $this
+* @access public
+* @author Pascal Brödner
+*/
+    public function ErrorMessage( $Msg ){
+        $this->Output( $Msg, null, "white", "red" );
         return $this;
     }//end of method
 
