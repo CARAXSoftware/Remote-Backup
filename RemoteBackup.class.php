@@ -103,7 +103,7 @@ class CARAX_Remote_Backup{
         // Copy Directories
         $Max = count( $this->Dirs );
         if( $Max > 0 ){
-            $this->Output( "Coping ".$Max." directorie".( $Max > 1 ? "s" : "" ).":", 1 );
+            $this->Output( "Coping ".$Max." director".( $Max > 1 ? "ies" : "y" ).":", 1 );
             $i = 1;
             foreach( $this->Dirs AS $R ){
                 // Get/Create Target Dir
