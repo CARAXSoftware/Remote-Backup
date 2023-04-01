@@ -39,11 +39,11 @@ class CARAX_Remote_Backup{
 
     public $TempDir = "/tmp/"; // Temporary work directory
     private $WorkDir = ""; // Is set automatically
-    private $SQLInstances = array(); // Array with SQL Instances
-    private $RemoteTargets = array();
+    private $SQLInstances = []; // Array with SQL Instances
+    private $RemoteTargets = [];
     
-    private $Files = array();
-    private $Dirs = array();
+    private $Files = [];
+    private $Dirs = [];
     
     public $Password = ""; // Archive password
     public $DeleteFilesAfterXDays = 14; // in Days (0 = disabled)
@@ -57,10 +57,19 @@ class CARAX_Remote_Backup{
 * @author Pascal Brödner
 */
     public function Process(){
+        // Message
+        $start_time = microtime(TRUE);
+        $this->Output( "REMOTE-BACKUP STARTED ON ".date("c"), 0, "white", "magenta" );
+        $this->Output( "CREATE BACKUP", 0, "black", "white" );
+        
         // Create Tmp Dir
         $Filename = "Backup_".date("ymd_Hi");
         $this->WorkDir = $this->TempDir . $Filename . DIRECTORY_SEPARATOR;
-        if( !is_dir( $this->WorkDir ) ) mkdir( $this->WorkDir, 0774, true );
+        if( !is_dir( $this->WorkDir ) ){
+            $this->Output( "Create temporary directory: ".$this->WorkDir, 1 );
+            mkdir( $this->WorkDir, 0774, true );
+            if( !is_dir( $this->WorkDir ) ) throw new Exception("Temporary directory could not be created!");
+        }//end of if
         
         // Create SQL Backups
         if( count( $this->SQLInstances ) > 0 ){
@@ -72,7 +81,10 @@ class CARAX_Remote_Backup{
         }//end of if
         
         // Copy Files
-        if( count( $this->Files ) > 0 ){
+        $Max = count( $this->Files );
+        if( $Max > 0 ){
+            $this->Output( "Coping ".$Max." file".( $Max > 1 ? "s" : "" ).":", 1 );
+            $i = 1;
             foreach( $this->Files AS $R ){
                 // Get/Create Target Dir
                 $FT = preg_replace( "#^/#i", "", preg_replace( "#/$#i", "", $R["TargetDir"] ) );
@@ -80,12 +92,19 @@ class CARAX_Remote_Backup{
                 if( !is_dir( $TmpTargetDir ) ) mkdir( $TmpTargetDir, 0774, true );
                 
                 // Copy File
-                copy( $R["File"], $TmpTargetDir.basename( $R["File"] ) );
+                $TargetFile = $TmpTargetDir . basename( $R["File"] );
+                $this->Output( "#".$i." ".$R["File"]." ... ", 2, "", "", true );
+                copy( $R["File"], $TargetFile );
+                if( file_exists( $TargetFile ) ) $this->Output( "OK", 0, "green" ); ELSE $this->Output( "FAIL", 0, "red" );
+                $i++;                
             }//end of foreach
         }//end of if
         
         // Copy Directories
-        if( count( $this->Dirs ) > 0 ){
+        $Max = count( $this->Dirs );
+        if( $Max > 0 ){
+            $this->Output( "Coping ".$Max." directories".( $Max > 1 ? "s" : "" ).":", 1 );
+            $i = 1;
             foreach( $this->Dirs AS $R ){
                 // Get/Create Target Dir
                 $FT = preg_replace( "#^/#i", "", preg_replace( "#/$#i", "", $R["TargetDir"] ) );
@@ -93,21 +112,33 @@ class CARAX_Remote_Backup{
                 if( !is_dir( $TmpTargetDir ) ) mkdir( $TmpTargetDir, 0774, true );
                 
                 // Copy File
-                exec( "cp -pr ".escapeshellarg( $R["Dir"] )." ".escapeshellarg( $TmpTargetDir.basename( $R["Dir"] ) ) );
+                $CopyTargetDir = $TmpTargetDir . basename( $R["Dir"] );
+                $this->Output( "#".$i." ".$R["Dir"]." ... ", 2, "", "", true );
+                exec( "cp -pr ".escapeshellarg( $R["Dir"] )." ".escapeshellarg( $CopyTargetDir ) );
+                if( is_dir( $CopyTargetDir ) ) $this->Output( "OK", 0, "green" ); ELSE $this->Output( "FAIL", 0, "red" );
+                $i++;
             }//end of foreach
         }//end of if
         
         // ZIP Dir
-        $File = $this->DirToArchive( $this->WorkDir, $this->TempDir.$Filename.".7z" );        
+        $TargetZipFile = $this->TempDir.$Filename.".7z";
+        $this->Output( "Create encrypted and secured 7z-file", 1 );
+        $this->Output( $TargetZipFile." ... ", 2, "", "", true );
+        $File = $this->DirToArchive( $this->WorkDir, $TargetZipFile );
+        if( file_exists( $TargetZipFile ) ) $this->Output( "OK", 0, "green" ); ELSE $this->Output( "FAIL", 0, "red" );
         
         // Submit Remote Targets
+        $this->Output( "TRANSFER BACKUP FILE", 0, "black", "white" );
         if( count( $this->RemoteTargets ) > 0 ){
             foreach( $this->RemoteTargets AS $Remote ){
+                $TransferOK = false;
+                $this->Output( "Transfer to ".$Remote["Type"]." ... ", 1, "", "", true );
                 switch( strtolower( $Remote["Type"] ) ){
-                    case "ftp": $this->TransferToFTP( $File, $Remote ); break;
-                    case "dropbox": $this->TransferToDropbox( $File, $Remote ); break;
-                    case "dir": $this->TransferToDir( $File, $Remote ); break;
+                    case "ftp": $TransferOK = $this->TransferToFTP( $File, $Remote ); break;
+                    case "dropbox": $TransferOK = $this->TransferToDropbox( $File, $Remote ); break;
+                    case "dir": $TransferOK = $this->TransferToDir( $File, $Remote ); break;
                 }//end of switch
+                if( $TransferOK ) $this->Output( "OK", 0, "green" ); ELSE $this->Output( "FAIL", 0, "red" );
             }//end of foreach
         }//end of if
         
@@ -116,6 +147,8 @@ class CARAX_Remote_Backup{
         unlink( $File );
                 
         // return
+        $end_time = microtime(TRUE);
+        $this->Output( "COMPLETED IN ".round( $end_time - $start_time, 3 )." SECONDS", 0, "black", "green" );
         return true;
     }//end of method
     
@@ -131,7 +164,7 @@ class CARAX_Remote_Backup{
 */
     private function TransferToDropbox( $File, $Options ){
         // Create Innstance
-        $Dropbox = new CARAX_Dropbox( $Options["Token"] );
+        $Dropbox = new CARAX_Dropbox( $this, $Options["Token"] );
         
         // Remove older files
         if( $this->DeleteFilesAfterXDays > 0 ){
@@ -146,7 +179,8 @@ class CARAX_Remote_Backup{
         }//end of if
         
         // Upload new File
-        return $Dropbox->Upload( $File, $Options["Path"] );
+        $Response = $Dropbox->Upload( $File, $Options["Path"] );
+        return $Response["id"] ? true : false;
     }//end of method
     
     
@@ -215,10 +249,11 @@ class CARAX_Remote_Backup{
         }//end of if
         
         // Copy new file
-        $Result = copy( $File, $Path . basename( $File ) );
+        $TargetFile = $Path . basename( $File );
+        $Result = copy( $File, $TargetFile );
         
         // return
-        return $Result;
+        return file_exists( $TargetFile );
     }//end of method
     
     
@@ -231,10 +266,10 @@ class CARAX_Remote_Backup{
 * @author Pascal Brödner
 */
     public function ToDir( $Path ){
-        $this->RemoteTargets[] = array(
+        $this->RemoteTargets[] = [
             "Type"=> "Dir",
             "Path"=> $Path
-        );
+        ];
         return $this;
     }//end of method
     
@@ -249,11 +284,11 @@ class CARAX_Remote_Backup{
 * @author Pascal Brödner
 */
     public function ToDropbox( $Path, $AccessToken ){
-        $this->RemoteTargets[] = array(
+        $this->RemoteTargets[] = [
             "Type"=> "Dropbox",
             "Token"=> $AccessToken,
             "Path"=> $Path
-        );
+        ];
         return $this;
     }//end of method
     
@@ -271,14 +306,14 @@ class CARAX_Remote_Backup{
 * @author Pascal Brödner
 */
     public function ToFTP( $User, $Pass, $Host, $Port = 21, $Path = "/" ){
-        $this->RemoteTargets[] = array(
+        $this->RemoteTargets[] = [
             "Type"=> "FTP",
             "User"=> $User,
             "Pass"=> $Pass,
             "Host"=> $Host,
             "Port"=> $Port,
             "Path"=> $Path
-        );
+        ];
         return $this;
     }//end of method
     
@@ -295,7 +330,7 @@ class CARAX_Remote_Backup{
     public function Dir( $Dir, $TargetDir = "" ){
         $ID = hash("CRC32", $Dir );
         if( is_dir( $Dir ) AND is_readable( $Dir ) AND !$this->Dirs[ $ID ] ){
-            $this->Dirs[ $ID ] = array( "Dir"=> $Dir, "TargetDir"=> $TargetDir );
+            $this->Dirs[ $ID ] = [ "Dir"=> $Dir, "TargetDir"=> $TargetDir ];
         }//end of if
         return $this;
     }//end of method
@@ -313,7 +348,7 @@ class CARAX_Remote_Backup{
     public function File( $File, $TargetDir = "" ){
         $ID = hash("CRC32", $File );
         if( file_exists( $File ) AND is_readable( $File ) AND !$this->Files[ $ID ] ){
-            $this->Files[ $ID ] = array( "File"=> $File, "TargetDir"=> $TargetDir );
+            $this->Files[ $ID ] = [ "File"=> $File, "TargetDir"=> $TargetDir ];
         }//end of if
         return $this;
     }//end of method
@@ -331,7 +366,7 @@ class CARAX_Remote_Backup{
 * @author Pascal Brödner
 */
     public function SQL( $Host, $User, $Pass ){
-        $Instance = new CARAX_BackupSQL( $Host, $User, $Pass );
+        $Instance = new CARAX_BackupSQL( $this, $Host, $User, $Pass );
         $this->SQLInstances[] = $Instance;
         return $Instance;
     }//end of method
@@ -361,6 +396,38 @@ class CARAX_Remote_Backup{
         // return
         return file_exists( $File ) ? $File : "";
     }//end of method
+    
+    
+/**
+* This method prints a message to the screen.
+*
+* @param string $Msg
+* @param int $Level [optional]
+* @param string $Foreground [optional]
+* @param string $Background [optional]
+* @return CARAX_Remote_Backup $this
+* @access public
+* @author Pascal Brödner
+*/
+    private $LatestOutputLevel = 0;
+    public function Output( $Msg, $Level = 0, $Foreground = "", $Background = "", $NoBreak = false ){
+        if( $Level === null ) $Level = $this->LatestOutputLevel;
+        
+        $Foregrounds = [ "default"=> "39m", "black"=> "30m", "red"=> "91m", "green"=> "92m", "orange"=> "93m", "blue"=> "94m", "magenta"=> "95m", "cyan"=> "96m", "white"=> "97m" ];
+        $FgFormat = $Foregrounds[ $Foreground ];
+        
+        $Backgrounds = [ "default"=> "49m", "black"=> "40m", "red"=> "101m", "green"=> "102m", "orange"=> "103m", "blue"=> "104m", "magenta"=> "105m", "cyan"=> "106m", "white"=> "107m" ];
+        $BgFormat = $Backgrounds[ $Background ];
+        
+        if( $FgFormat OR $BgFormat ){
+            $Msg = ( $FgFormat ? "\e[".$FgFormat : "" ).( $BgFormat ? "\e[".$BgFormat : "" ).$Msg."\e[0m";
+        }//end of if
+        
+        echo str_repeat( "\t", $Level ).$Msg;
+        if( !$NoBreak ) echo PHP_EOL;
+        $this->LatestOutputLevel = $Level;
+        return $this;
+    }//end of method
 
 }//end of method
 
@@ -377,15 +444,17 @@ class CARAX_BackupSQL{
 * @version 1.0 2018-07-16
 */
 
+    private $BackupInstance = null;    
     private $Host = "";
     private $User = "";
     private $Pass = "";
-    private $Databases = array();
+    private $Databases = [];
 
-    public function __construct( $Host, $User, $Pass ){
+    public function __construct( $BackupInstance, $Host, $User, $Pass ){
         if( !$Host ) throw new Exception("Database Host is empty");
         if( !$User ) throw new Exception("Database User is empty");
         if( !$Pass ) throw new Exception("Database Pass is empty");
+        $this->BackupInstance = $BackupInstance;
         $this->Host = $Host;
         $this->User = $User;
         $this->Pass = $Pass;
@@ -424,12 +493,22 @@ class CARAX_BackupSQL{
 */
     public function ExportToDir( $Dir ){
         // Settings
-        if( count( $this->Databases )<=0 ) return array();
+        $Max = count( $this->Databases );
+        if( $Max<=0 ) return $this;
         if( !$Dir OR !is_writeable( $Dir ) ) throw new Exception("SQL export target dir is not writable");
         
         // Export each database
+        $this->BackupInstance->Output( "Export ".$Max." database".( $Max > 1 ? "s" : "" ).":", 1 );
         foreach( $this->Databases AS $Database ){
-            $this->DumpDatabase( $Database, $Dir.$Database.".sql" );
+            // Settings
+            $i++; $File = $Dir . $Database.".sql";
+            $this->BackupInstance->Output( "#".$i." ".$Database." ... ", 2, "", "", true );
+            
+            // Dump Database
+            $this->DumpDatabase( $Database, $File );
+            
+            // Validate
+            if( file_exists( $File ) ) $this->BackupInstance->Output( "OK", 0, "green" ); ELSE $this->BackupInstance->Output( "FAIL", 0, "red" );
         }//end of foreach
         
         return $this;
@@ -451,9 +530,14 @@ class CARAX_BackupSQL{
         if( !$File ) $File = $Database.".sql";
         
         // Dump
-        $cmd = "mysqldump -h ".escapeshellcmd( $this->Host )." -u ".escapeshellcmd( $this->User )." -p".escapeshellcmd( $this->Pass )." ";
+        $cmd = "export MYSQL_PWD=".escapeshellcmd( $this->Pass )."; "; // Define MySQL Password to prevent Console Warning!
+        $cmd.= "mysqldump -h ".escapeshellcmd( $this->Host )." -u ".escapeshellcmd( $this->User )." ";
         $cmd.= "-c --add-drop-table --add-locks --quick --lock-tables ";
         $cmd.= escapeshellcmd( $Database )." > ".escapeshellcmd( $File );
+        
+        //$cmd = "mysqldump -h ".escapeshellcmd( $this->Host )." -u ".escapeshellcmd( $this->User )." -p".escapeshellcmd( $this->Pass )." ";
+        //$cmd.= "-c --add-drop-table --add-locks --quick --lock-tables ";
+        //$cmd.= escapeshellcmd( $Database )." > ".escapeshellcmd( $File );
         
         // Exec
         exec( $cmd );
@@ -475,9 +559,11 @@ class CARAX_Dropbox{
 * @version 1.0 2018-07-16
 */
 
+    private $BackupInstance = null;
     private $AccessToken = "";
     
-    public function __construct( $AccessToken ){
+    public function __construct( $BackupInstance, $AccessToken ){
+        $this->BackupInstance = $BackupInstance;
         $this->AccessToken = $AccessToken;
     }//end of construct
     
@@ -495,7 +581,7 @@ class CARAX_Dropbox{
         $Response = $this->REST_Request( 
             "https://content.dropboxapi.com/2/files/upload", 
             file_get_contents( $File ), 
-            array(
+            [
                 "Authorization: Bearer ".$this->AccessToken,
                 "Content-Type: application/octet-stream",
                 "Dropbox-API-Arg: ".json_encode(array(
@@ -504,7 +590,7 @@ class CARAX_Dropbox{
                     "autorename"=> true,
                     "mute"=> false
                 ))
-            )
+            ]
         );
         return $Response;
     }//end of method
@@ -521,13 +607,11 @@ class CARAX_Dropbox{
     public function Delete( $RemoteFile ){
         $Response = $this->REST_Request( 
             "https://api.dropboxapi.com/2/files/delete_v2", 
-            json_encode(array(
-                "path"=> $RemoteFile
-            )), 
-            array(
+            json_encode([ "path"=> $RemoteFile ]), 
+            [
                 "Authorization: Bearer ".$this->AccessToken,
                 "Content-Type: application/json"
-            )
+            ]
         );
         return $Response["metadata"];
     }//end of method
@@ -544,18 +628,18 @@ class CARAX_Dropbox{
     public function Listing( $Path = "" ){
         $Response = $this->REST_Request( 
             "https://api.dropboxapi.com/2/files/list_folder", 
-            json_encode(array(
+            json_encode([
                 "path"=> $Path,
                 "recursive"=> false,
                 "include_media_info"=> false,
                 "include_deleted"=> false,
                 "include_has_explicit_shared_members"=> false,
                 "include_mounted_folders"=> true
-            )), 
-            array(
+            ]), 
+            [
                 "Authorization: Bearer ".$this->AccessToken,
                 "Content-Type: application/json"
-            )
+            ]
         );
         return $Response["entries"];
     }//end of method
@@ -572,8 +656,8 @@ class CARAX_Dropbox{
 * @access public
 * @author Pascal Brödner
 */
-    public function REST_Request( $URL, $Data = array(), $Headers = array(), $AuthRequired = false ){
-        if( !is_array( $Headers ) ) $Headers = array();
+    public function REST_Request( $URL, $Data = [], $Headers = array(), $AuthRequired = false ){
+        if( !is_array( $Headers ) ) $Headers = [];
         $Content = ( is_array( $Data ) ) ? http_build_query( $Data, '', '&' ) : $Data;
 
         $Headers[] = "Accept: application/json";
