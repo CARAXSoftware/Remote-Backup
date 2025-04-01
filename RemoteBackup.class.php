@@ -627,8 +627,8 @@ class CARAX_Remote_Backup{
         }//end of if
         
         // Build 7zip command with both I/O and CPU priority controls
-        $cmd = $nice . $ionice . "7z a -t7z -slp -m0=lzma2 -mx=9 -mfb=128 ";
-        $cmd.= "-md=128m -ms=on -mhe=on -ssw ";
+        $cmd = $nice . $ionice . "7z a -t7z -slp -m0=lzma2 -mx=9 -mfb=64 ";
+        $cmd.= "-md=32m -ms=on -mhe=on -ssw "; // -mfb=128 -md=128m
         
         // Add absolute path flag when using direct compression (when Dir is an array)
         if( is_array( $Dir ) ){
