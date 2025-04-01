@@ -47,6 +47,7 @@ class CARAX_Remote_Backup{
     private $Files = [];
     private $Dirs = [];
 
+    public $IsDebug = false;
     public $CompressSourceDirectly = false; // Flag to indicate if source should be compressed directly without moving to a tmp dir
     
     public $Password = ""; // Archive password
@@ -57,25 +58,34 @@ class CARAX_Remote_Backup{
     private $SyslogIdent = 'RemoteBackup';
     
 /**
+* Destructor to ensure syslog connection is closed
+*/
+    public function __destruct() {
+        // Close syslog connection if it was opened
+        closelog();
+    }//end of destructor
+    
+/**
 * This method logs a message to syslog.
 *
 * @param string $message Message to log
 * @param int $priority Log priority (LOG_NOTICE, LOG_ERR, etc.)
 * @return void
 * @access public
-* @author [Your Name]
+* @author Pascal Brödner
 */
     public function LogToSyslog($message, $priority = LOG_NOTICE) {
         // Open syslog connection if not already open
         static $isOpen = false;
-        if (!$isOpen) {
-            openlog($this->SyslogIdent, LOG_PID | LOG_CONS, $this->SyslogFacility);
+        if( !$isOpen ){
+            openlog( $this->SyslogIdent, LOG_PID | LOG_CONS, $this->SyslogFacility );
             $isOpen = true;
-        }
+        }//end of if
         
         // Write to syslog
-        syslog($priority, $message);
-    }
+        syslog( $priority, $message );
+    }//end of method
+    
     
 /**
 * This method is starting the backup process.
@@ -92,7 +102,7 @@ class CARAX_Remote_Backup{
         $this->Output( "CREATE BACKUP", 0, "black", "white" );
         
         // Create Tmp Dir
-        $Filename = "Backup_".date("ymd_Hi");
+        $Filename = $this->IsDebug ? "TestBackup" : "Backup_".date("ymd_Hi");
         $this->WorkDir = $this->TempDir . $Filename . DIRECTORY_SEPARATOR;
         
         // Array to hold directories for direct compression
@@ -104,22 +114,22 @@ class CARAX_Remote_Backup{
                 $this->Output( "Create temporary directory: ".$this->WorkDir, 1 );
                 mkdir( $this->WorkDir, 0774, true );
                 if( !is_dir( $this->WorkDir ) ) throw new Exception("Temporary directory could not be created!");
-            }
+            }//end of if
             
-            foreach( $this->SQLInstances AS $SQL ){
-                $SQLDir = $this->WorkDir . "SQLDump" . DIRECTORY_SEPARATOR;
-                if( !is_dir( $SQLDir ) ) mkdir( $SQLDir, 0774, true );
-                $SQL->ExportToDir( $SQLDir );
-            }
+            // Create SQL Temp Dir
+            $SQLDir = $this->WorkDir . "SQLDump" . DIRECTORY_SEPARATOR;
+            if( !is_dir( $SQLDir ) ) mkdir( $SQLDir, 0774, true );
+            
+            // Export Databases
+            foreach( $this->SQLInstances AS $SQL ) $SQL->ExportToDir( $SQLDir );
             
             // Add SQL directory to compression list
-            if($this->CompressSourceDirectly) {
-                $compressDirs[] = $this->WorkDir;
-            }
-        }
+            if( $this->CompressSourceDirectly ) $compressDirs[] = $SQLDir;
+        }//end of if
         
-        if($this->CompressSourceDirectly) {
-            // Direct compression mode
+        // Compress directly or move to tmp dir
+        if( $this->CompressSourceDirectly ){
+            // DIRECT COMPRESSION
             // Process Files - collect original paths for direct compression
             $Max = count( $this->Files );
             if( $Max > 0 ){
@@ -127,19 +137,20 @@ class CARAX_Remote_Backup{
                 $i = 1;
                 foreach( $this->Files AS $R ){
                     $this->Output( "#".$i." ".$R["File"]." ... ", 2, "", "", true );
-                    if(file_exists($R["File"]) && is_readable($R["File"])) {
+                    if( file_exists( $R["File"] ) AND is_readable( $R["File"] ) ){
                         // Get the directory of the file to add to compress list
-                        $fileDir = dirname($R["File"]);
-                        if(!in_array($fileDir, $compressDirs)) {
+                        //$fileDir = dirname( $R["File"] );
+                        $fileDir = $R["File"];
+                        if( !in_array( $fileDir, $compressDirs ) ){
                             $compressDirs[] = $fileDir;
-                        }
+                        }//end of if
                         $this->Output( "OK", 0, "green" );
-                    } else {
+                    }else{
                         $this->Output( "FAIL", 0, "red" );
-                    }
+                    }//end of if
                     $i++;
-                }
-            }
+                }//end of foreach
+            }//end of if
             
             // Process Directories - collect original paths for direct compression
             $Max = count( $this->Dirs );
@@ -148,23 +159,24 @@ class CARAX_Remote_Backup{
                 $i = 1;
                 foreach( $this->Dirs AS $R ){
                     $this->Output( "#".$i." ".$R["Dir"]." ... ", 2, "", "", true );
-                    if(is_dir($R["Dir"]) && is_readable($R["Dir"])) {
+                    if( is_dir( $R["Dir"] ) AND is_readable( $R["Dir"] ) ){
                         // Add directory to compress list
                         $compressDirs[] = $R["Dir"];
                         $this->Output( "OK", 0, "green" );
-                    } else {
+                    }else{
                         $this->Output( "FAIL", 0, "red" );
-                    }
+                    }//end of if
                     $i++;
-                }
-            }
-        } else {
-            // Traditional mode - copy files to temp directory
+                }//end of foreach
+            }//end of if
+        
+        }else{
+            // TRADITIONAL MODE: copy files to temp directory
             if( !is_dir( $this->WorkDir ) ){
                 $this->Output( "Create temporary directory: ".$this->WorkDir, 1 );
                 mkdir( $this->WorkDir, 0774, true );
                 if( !is_dir( $this->WorkDir ) ) throw new Exception("Temporary directory could not be created!");
-            }
+            }//end of if
             
             // Copy Files
             $Max = count( $this->Files );
@@ -205,29 +217,29 @@ class CARAX_Remote_Backup{
                     $i++;
                 }//end of foreach
             }//end of if
-        }
+        }//end of if
         
         // ZIP Dir
         $TargetZipFile = $this->TempDir.$Filename.".7z";
         $this->Output( "Create encrypted and secured 7z-file", 1 );
         $this->Output( $TargetZipFile." ... ", 2, "", "", true );
         
-        if($this->CompressSourceDirectly && !empty($compressDirs)) {
+        if( $this->CompressSourceDirectly && !empty( $compressDirs ) ){
             // Use direct compression with array of directories
             $File = $this->DirToArchive( $compressDirs, $TargetZipFile );
-        } else {
+        }else{
             // Traditional compression of temp directory
             $File = $this->DirToArchive( $this->WorkDir, $TargetZipFile );
-        }
+        }//end of if
         
-        if( file_exists( $TargetZipFile ) ) {
+        if( file_exists( $TargetZipFile ) ){
             $this->Output( "OK", 0, "green" );
             
             // Log archive size
             $filesize = filesize($TargetZipFile);
             $human_size = $this->formatBytes($filesize);
-            $this->LogToSyslog("Archive created: $TargetZipFile ($human_size)", LOG_NOTICE);
-        } ELSE $this->Output( "FAIL", 0, "red" );
+            $this->LogToSyslog("Archive created: ".$TargetZipFile." (".$human_size.")", LOG_NOTICE);
+        }else $this->Output( "FAIL", 0, "red" );
         
         // Submit Remote Targets
         $this->Output( "TRANSFER BACKUP FILE", 0, "black", "white" );
@@ -241,29 +253,29 @@ class CARAX_Remote_Backup{
                         $this->Output( "Transfer to FTP -> ".$Remote["User"]."@".$Remote["Host"]." ... ", 1, "", "", true );
                         $TransferOK = $this->TransferToFTP( $File, $Remote );
                         $transfer_duration = round(microtime(TRUE) - $transfer_start_time, 2);
-                        if($TransferOK) {
+                        if( $TransferOK ){
                             $this->LogToSyslog("Transferred to FTP: ".$Remote["User"]."@".$Remote["Host"]." in $transfer_duration seconds", LOG_NOTICE);
-                        } else {
+                        }else{
                             $this->LogToSyslog("Failed to transfer to FTP: ".$Remote["User"]."@".$Remote["Host"], LOG_ERR);
-                        }
+                        }//end of if
                     break;
                     case "dropbox":
                         $this->Output( "Transfer to Dropbox ... ", 1, "", "", true );
                         $TransferOK = $this->TransferToDropbox( $File, $Remote );
-                        if($TransferOK) {
+                        if( $TransferOK ){
                             $this->LogToSyslog("Transferred to Dropbox successfully", LOG_NOTICE);
-                        } else {
+                        }else{
                             $this->LogToSyslog("Failed to transfer to Dropbox", LOG_ERR);
-                        }
+                        }//end of if
                     break;
                     case "dir":
                         $this->Output( "Transfer to directory -> ".$Remote["Path"]." ... ", 1, "", "", true );
                         $TransferOK = $this->TransferToDir( $File, $Remote ); 
-                        if($TransferOK) {
+                        if( $TransferOK ){
                             $this->LogToSyslog("Transferred to directory: ".$Remote["Path"], LOG_NOTICE);
-                        } else {
+                        }else{
                             $this->LogToSyslog("Failed to transfer to directory: ".$Remote["Path"], LOG_ERR);
-                        }
+                        }//end of if
                     break;
                 }//end of switch
                 if( $TransferOK ) $this->Output( "OK", 0, "green" ); ELSE $this->Output( "FAIL", 0, "red" );
@@ -281,26 +293,6 @@ class CARAX_Remote_Backup{
         $this->LogToSyslog("REMOTE-BACKUP COMPLETED IN ".$duration." SECONDS", LOG_NOTICE);
         return true;
     }//end of method
-    
-/**
-* Format bytes to human readable size
-*
-* @param int $bytes Number of bytes
-* @param int $precision Precision of rounding
-* @return string Human readable size
-* @access public
-*/
-    public function formatBytes($bytes, $precision = 2) {
-        $units = array('B', 'KB', 'MB', 'GB', 'TB');
-        
-        $bytes = max($bytes, 0);
-        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
-        $pow = min($pow, count($units) - 1);
-        
-        $bytes /= pow(1024, $pow);
-        
-        return round($bytes, $precision) . ' ' . $units[$pow];
-    }
     
     
 /**
@@ -377,9 +369,9 @@ class CARAX_Remote_Backup{
                 }//end of foreach
             }//end of if
             
-            if($filesDeleted > 0) {
-                $this->LogToSyslog("Deleted $filesDeleted old files from FTP", LOG_NOTICE);
-            }
+            if( $filesDeleted > 0 ){
+                $this->LogToSyslog("Deleted ".$filesDeleted." old files from FTP", LOG_NOTICE);
+            }//end of if
         }//end of if
         
         // Upload new file
@@ -532,7 +524,6 @@ class CARAX_Remote_Backup{
     }//end of method
     
     
-    
 /**
 * This method is creating a SQL backup plan.
 *
@@ -551,6 +542,38 @@ class CARAX_Remote_Backup{
     
     
 /**
+* This method returns the cpu count of the host machine.
+*
+* @return int $Number
+* @access private
+* @author Pascal Brödner
+*/
+    private function GetCPUCount(): Int {
+        // Automatic CPU detection with fallbacks
+        $cpuCount = 4; // Safe default fallback
+        
+        // Try to detect CPU count using various methods
+        if( function_exists('shell_exec') ){
+            // Try using nproc command (Linux/Unix)
+            $detected = intval( trim( shell_exec('nproc 2>/dev/null') ) );
+            if( $detected > 0 ){
+                $cpuCount = $detected;
+            }else{
+                // Alternative: parse /proc/cpuinfo on Linux
+                $cpuinfo = @shell_exec('cat /proc/cpuinfo | grep -c processor 2>/dev/null');
+                if( $cpuinfo ){
+                    $detected = intval( trim( $cpuinfo ) );
+                    if( $detected > 0 ) $cpuCount = $detected;
+                }//end of if
+            }//end of if
+        }//end of if
+        
+        // Return
+        return (int)$cpuCount;
+    }//end of method
+    
+    
+/**
 * This method is creating an encrypted arctive file supported by 7z.
 * Can accept a single directory or an array of directories.
 *
@@ -560,118 +583,89 @@ class CARAX_Remote_Backup{
 * @access private
 * @author Pascal Brödner
 */
-    private function DirToArchive( $Dir, $File ){
-        // Execute Command
-        if( !$this->Password ){
-            throw new Exception("Password is required");
-        }
-        
-        // Automatic CPU detection with fallbacks
-        $cpuCount = 4; // Safe default fallback
-        
-        // Try to detect CPU count using various methods
-        if (function_exists('shell_exec')) {
-            // Try using nproc command (Linux/Unix)
-            $detected = intval(trim(shell_exec('nproc 2>/dev/null')));
-            if ($detected > 0) {
-                $cpuCount = $detected;
-            } else {
-                // Alternative: parse /proc/cpuinfo on Linux
-                $cpuinfo = @shell_exec('cat /proc/cpuinfo | grep -c processor 2>/dev/null');
-                if ($cpuinfo) {
-                    $detected = intval(trim($cpuinfo));
-                    if ($detected > 0) {
-                        $cpuCount = $detected;
-                    }
-                }
-            }
-        }
-        
+    private function DirToArchive( $Dir, $File ): String {
         // Calculate optimal affinity mask and thread count
         $affinity = '';
+        $cpuCount = $this->GetCPUCount(); // Automatic CPU detection with fallbacks
         $threadCount = $cpuCount - 1;
         
-        if ($cpuCount <= 2) {
+        if( $cpuCount <= 2 ){
             // For 1-2 core systems, just use all cores (don't set affinity)
             $affinity = '';
             $threadCount = $cpuCount; // Use all available threads
-        } else if ($cpuCount <= 4) {
+        }else if( $cpuCount <= 4 ){
             // For 3-4 core systems: binary 1110 -> hex 'E' (excludes CPU 0)
             $affinity = 'E';
             $threadCount = $cpuCount - 1;
-        } else {
+        }else{
             // For 5+ core systems: Create mask with all bits set except bit 0
             // This ensures CPU 0 is never used regardless of core count
             $mask = (1 << $cpuCount) - 2; // Set all bits up to cpuCount, then clear bit 0
             $affinity = dechex($mask);
-        }
+        }//end of if
         
         // Check if ionice is available to reduce I/O impact
         $ionice = '';
-        if (function_exists('shell_exec')) {
+        if( !$this->IsDebug AND function_exists('shell_exec') ){
             $ioniceCheck = shell_exec('which ionice 2>/dev/null');
-            if (!empty($ioniceCheck)) {
+            if( !empty( $ioniceCheck ) ){
                 // Use class 2 (best-effort) with priority 6 (lower number = higher priority)
                 // This allows other processes like MySQL and Nginx to have priority
                 $ionice = 'ionice -c2 -n6 ';
-            }
-        }
+            }//end of if
+        }//end of if
 
         // Check if nice is available to control CPU priority
         $nice = '';
-        if (function_exists('shell_exec')) {
+        if( !$this->IsDebug AND function_exists('shell_exec') ){
             $niceCheck = shell_exec('which nice 2>/dev/null');
-            if (!empty($niceCheck)) {
+            if( !empty( $niceCheck ) ){
                 // Set a nice value of 10 (higher = lower priority, range is -20 to 19)
                 // This gives good balance between backup speed and system responsiveness
                 $nice = 'nice -n 10 ';
-            }
-        }
+            }//end of if
+        }//end of if
         
         // Build 7zip command with both I/O and CPU priority controls
         $cmd = $nice . $ionice . "7z a -t7z -slp -m0=lzma2 -mx=9 -mfb=128 ";
         $cmd.= "-md=128m -ms=on -mhe=on -ssw ";
         
         // Add absolute path flag when using direct compression (when Dir is an array)
-        if(is_array($Dir)) {
+        if( is_array( $Dir ) ){
             $cmd.= "-spf ";  // Use absolute paths for files
-        }
+        }//end of if
         
         // Only add affinity if we need it
-        if (!empty($affinity)) {
+        if( !$this->IsDebug AND !empty( $affinity ) ){
             $cmd.= "-stm".$affinity." ";
-        }
+        }//end of if
         
         // Set thread count if we have multiple cores
-        if ($threadCount > 1) {
+        if( !$this->IsDebug AND $threadCount > 1 ){
             $cmd.= "-mmt=".$threadCount." ";
-        }
+        }//end of if
         
-        $cmd.= "-p".escapeshellarg( $this->Password )." ";
+        if( $this->Password ) $cmd.= "-p".escapeshellarg( $this->Password )." ";
         $cmd.= escapeshellarg( $File )." ";
         
         // Handle directory parameter
-        if(is_array($Dir)) {
+        if( is_array( $Dir ) ){
             // Process array of directories
-            foreach($Dir as $directory) {
-                if(!$directory || !is_readable($directory)) {
-                    throw new Exception("Directory '$directory' is not readable");
-                }
-                $cmd .= escapeshellarg($directory."*")." ";
-            }
-        } else {
+            foreach( $Dir as $directory ){
+                if( !$directory OR !is_readable($directory) ) throw new Exception("Directory ".$directory." is not readable");
+                $cmd.= escapeshellarg( is_dir( $directory ) ? $directory."*" : $directory )." ";
+            }//end of foreach
+        }else{
             // Process single directory
-            if(!$Dir || !is_readable($Dir)) {
-                throw new Exception("Directory is not readable");
-            }
-            $cmd .= escapeshellarg($Dir."*");
-        }
+            if( !$Dir OR !is_readable( $Dir ) ) throw new Exception("Directory ".$directory." is not readable");
+            $cmd .= escapeshellarg( $Dir."*" );
+        }//end of if
         
         // Execute command
-        exec($cmd);
+        exec( $cmd );
         
         // return
-        return file_exists($File) ? $File : "";
+        return file_exists( $File ) ? $File : "";
     }//end of method
     
     
@@ -719,16 +713,29 @@ class CARAX_Remote_Backup{
         $this->Output( $Msg, null, "white", "red" );
         return $this;
     }//end of method
+    
+    
+/**
+* Format bytes to human readable size
+*
+* @param int $bytes Number of bytes
+* @param int $precision Precision of rounding
+* @return string Human readable size
+* @access public
+*/
+    public function formatBytes( $bytes, $precision = 2 ){
+        $units = array('B', 'KB', 'MB', 'GB', 'TB');
+        
+        $bytes = max($bytes, 0);
+        $pow = floor(($bytes ? log($bytes) : 0) / log(1024));
+        $pow = min($pow, count($units) - 1);
+        
+        $bytes /= pow(1024, $pow);
+        
+        return round($bytes, $precision) . ' ' . $units[$pow];
+    }//end of method
 
-    /**
-    * Destructor to ensure syslog connection is closed
-    */
-    public function __destruct() {
-        // Close syslog connection if it was opened
-        closelog();
-    }
-
-}//end of method
+}//end of class
 
 
 /************************************************************************

@@ -12,6 +12,8 @@ try {
     include_once "RemoteBackup.class.php";
     $Backup = new CARAX_Remote_Backup;
     
+    $Backup->CompressSourceDirectly = true; // Indicates that the source files should be compressed directly without moving to a tmp dir
+    
     $Backup->TempDir = "/tmp/"; // Temporary directory to create the backup (Note: should have enough disk space!)
     $Backup->Password = "123456"; // Password to open and unzip the ZIP file
     
